@@ -1,0 +1,20 @@
+{
+  "name": "in-talent-backend",
+  "version": "1.0.0",
+  "description": "Backend para la aplicación de servicios InTalent",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^9.9.2",
+    "mysql2": "^3.23.3"
+  }
+}
