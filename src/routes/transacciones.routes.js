@@ -1,66 +1,87 @@
 // src/routes/transacciones.routes.js
 const express = require('express');
 const router = express.Router();
-const { transacciones, solicitudes, servicios } = require('../models/datos');
+const pool = require('../config/db');
 const { verificarToken, permitirRoles } = require('../middlewares/auth.middleware');
 
-// POST /api/transacciones/procesar -> +ProcesarPago()
-// Ejecutado habitualmente por el CLIENTE para saldar la solicitud
-router.post('/procesar', verificarToken, permitirRoles('CLIENTE'), (req, res) => {
+// POST /api/transacciones/procesar -> Registrar un pago (+ProcesarPago)
+router.post('/procesar', verificarToken, permitirRoles('CLIENTE'), async (req, res) => {
     const { id_solicitud, monto } = req.body;
 
     if (!id_solicitud || !monto) {
         return res.status(400).json({ error: "Campos requeridos: id_solicitud y monto." });
     }
 
-    // 1. Verificar la existencia de la solicitud
-    const solicitud = solicitudes.find(
-        s => s.id_solicitud === parseInt(id_solicitud) && s.id_cliente === req.usuario.id
-    );
+    try {
+        // 1. Verificar la existencia de la solicitud y que pertenezca al cliente autenticado
+        const [solicitudes] = await pool.query(
+            'SELECT * FROM Solicitud WHERE Id_solicitud = ? AND Id_cliente = ?',
+            [id_solicitud, req.usuario.id]
+        );
 
-    if (!solicitud) {
-        return res.status(404).json({ error: "Solicitud no encontrada o no pertenece al cliente autenticado." });
+        if (solicitudes.length === 0) {
+            return res.status(404).json({ 
+                error: "Solicitud no encontrada o no pertenece al cliente autenticado." 
+            });
+        }
+
+        // 2. Verificar que no exista un pago previamente completado para esta solicitud
+        const [pagosExistentes] = await pool.query(
+            'SELECT * FROM Transaccion WHERE Id_solicitud = ? AND estadoPago = "COMPLETADO"',
+            [id_solicitud]
+        );
+
+        if (pagosExistentes.length > 0) {
+            return res.status(400).json({ 
+                error: "Esta solicitud ya registra un pago completado." 
+            });
+        }
+
+        // 3. Registrar la transacción en MySQL
+        const [result] = await pool.query(
+            'INSERT INTO Transaccion (monto, estadoPago, Id_solicitud) VALUES (?, "COMPLETADO", ?)',
+            [parseFloat(monto), id_solicitud]
+        );
+
+        // 4. Actualizar el estado de la solicitud a 'ACEPTADO'
+        await pool.query(
+            'UPDATE Solicitud SET estado = "ACEPTADO" WHERE Id_solicitud = ?',
+            [id_solicitud]
+        );
+
+        res.status(201).json({
+            mensaje: "Pago procesado y registrado exitosamente en MySQL",
+            id_transaccion: result.insertId,
+            monto: parseFloat(monto),
+            estadoPago: "COMPLETADO",
+            id_solicitud: parseInt(id_solicitud)
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: "Error al procesar la transacción.", detalle: error.message });
     }
-
-    // 2. Evitar doble pago para una misma solicitud
-    const pagoExistente = transacciones.find(
-        t => t.id_solicitud === parseInt(id_solicitud) && t.estadoPago === 'COMPLETADO'
-    );
-
-    if (pagoExistente) {
-        return res.status(400).json({ error: "Esta solicitud ya tiene una transacción completada registrada." });
-    }
-
-    // 3. Simular procesamiento del pago
-    const nuevaTransaccion = {
-        id_transaccion: transacciones.length + 1,
-        monto: parseFloat(monto),
-        estadoPago: "COMPLETADO",
-        id_solicitud: parseInt(id_solicitud),
-        fechaTransaccion: new Date()
-    };
-
-    transacciones.push(nuevaTransaccion);
-
-    // Opcional: Actualizar el estado de la solicitud a ACEPTADO/PAGADO
-    solicitud.estado = "ACEPTADO";
-
-    res.status(201).json({
-        mensaje: "Pago procesado exitosamente",
-        transaccion: nuevaTransaccion
-    });
 });
 
-// GET /api/transacciones/solicitud/:id_solicitud -> Consulta de estado de pago por solicitud
-router.get('/solicitud/:id_solicitud', verificarToken, (req, res) => {
-    const idSolicitud = parseInt(req.params.id_solicitud);
-    const transaccion = transacciones.find(t => t.id_solicitud === idSolicitud);
+// GET /api/transacciones/solicitud/:id_solicitud -> Consultar estado de pago por solicitud
+router.get('/solicitud/:id_solicitud', verificarToken, async (req, res) => {
+    const { id_solicitud } = req.params;
 
-    if (!transaccion) {
-        return res.status(404).json({ error: "No existe registro de transacción para esta solicitud." });
+    try {
+        const [transacciones] = await pool.query(
+            'SELECT * FROM Transaccion WHERE Id_solicitud = ?',
+            [id_solicitud]
+        );
+
+        if (transacciones.length === 0) {
+            return res.status(404).json({ 
+                error: "No existe registro de transacción para la solicitud indicada." 
+            });
+        }
+
+        res.json(transacciones[0]);
+    } catch (error) {
+        res.status(500).json({ error: "Error al consultar la transacción.", detalle: error.message });
     }
-
-    res.json(transaccion);
 });
 
 module.exports = router;

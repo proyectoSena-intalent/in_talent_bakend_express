@@ -1,52 +1,66 @@
 // src/routes/solicitudes.routes.js
 const express = require('express');
 const router = express.Router();
-const { solicitudes, servicios } = require('../models/datos');
+const pool = require('../config/db');
 const { verificarToken, permitirRoles } = require('../middlewares/auth.middleware');
 
-// +Crear_solicitud() -> Ejecutada por el Cliente
-router.post('/', verificarToken, permitirRoles('CLIENTE'), (req, res) => {
-    const { id_servicio } = req.body;
-    const servicioEncontrado = servicios.find(s => s.id_servicio === parseInt(id_servicio));
+// GET /api/solicitudes -> Obtener solicitudes del usuario autenticado
+router.get('/', verificarToken, async (req, res) => {
+    try {
+        const { id, rol } = req.usuario;
+        let query = '';
+        let params = [];
 
-    if (!servicioEncontrado) {
-        return res.status(404).json({ error: "El servicio especificado no existe." });
+        if (rol === 'CLIENTE') {
+            query = `
+                SELECT s.Id_solicitud, s.estado, s.FechaCreacion, 
+                       p.email AS email_profesional, serv.descripcion AS servicio
+                FROM Solicitud s
+                INNER JOIN Profesional p ON s.Id_profesional = p.Id_profesional
+                INNER JOIN Servicio serv ON s.Id_servicio = serv.Id_servicio
+                WHERE s.Id_cliente = ?
+            `;
+            params = [id];
+        } else {
+            query = `
+                SELECT s.Id_solicitud, s.estado, s.FechaCreacion, 
+                       c.nombre AS cliente_nombre, c.email AS cliente_email, serv.descripcion AS servicio
+                FROM Solicitud s
+                INNER JOIN Cliente c ON s.Id_cliente = c.Id_cliente
+                INNER JOIN Servicio serv ON s.Id_servicio = serv.Id_servicio
+                WHERE s.Id_profesional = ?
+            `;
+            params = [id];
+        }
+
+        const [rows] = await pool.query(query, params);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: "Error al consultar las solicitudes.", detalle: error.message });
     }
-
-    const nuevaSolicitud = {
-        id_solicitud: solicitudes.length + 1,
-        estado: "PENDIENTE",
-        FechaCreacion: new Date(),
-        id_cliente: req.usuario.id,
-        id_profesional: servicioEncontrado.id_profesional,
-        id_servicio: servicioEncontrado.id_servicio
-    };
-
-    solicitudes.push(nuevaSolicitud);
-
-    res.status(201).json({
-        mensaje: "Solicitud creada con éxito",
-        solicitud: nuevaSolicitud
-    });
 });
 
-// +AceptarSolicitud() / +RechazarSolicitud() -> Ejecutada por el Profesional
-router.patch('/:id/estado', verificarToken, permitirRoles('PROFESIONAL'), (req, res) => {
-    const idSolicitud = parseInt(req.params.id);
-    const { nuevoEstado } = req.body; // 'ACEPTADO', 'RECHAZADO', 'CERRADO'
+// POST /api/solicitudes -> Crear una solicitud (CLIENTE)
+router.post('/', verificarToken, permitirRoles('CLIENTE'), async (req, res) => {
+    const { id_profesional, id_servicio } = req.body;
 
-    const solicitud = solicitudes.find(s => s.id_solicitud === idSolicitud && s.id_profesional === req.usuario.id);
-
-    if (!solicitud) {
-        return res.status(404).json({ error: "Solicitud no encontrada o no pertenece a este profesional." });
+    if (!id_profesional || !id_servicio) {
+        return res.status(400).json({ error: "Campos requeridos: id_profesional e id_servicio." });
     }
 
-    solicitud.estado = nuevoEstado;
+    try {
+        const [result] = await pool.query(
+            `INSERT INTO Solicitud (estado, Id_cliente, Id_profesional, Id_servicio) VALUES ('PENDIENTE', ?, ?, ?)`,
+            [req.usuario.id, id_profesional, id_servicio]
+        );
 
-    res.json({
-        mensaje: `Estado de la solicitud actualizado a: ${nuevoEstado}`,
-        solicitud
-    });
+        res.status(201).json({
+            mensaje: "Solicitud creada exitosamente",
+            id_solicitud: result.insertId
+        });
+    } catch (error) {
+        res.status(500).json({ error: "Error al crear la solicitud.", detalle: error.message });
+    }
 });
 
 module.exports = router;

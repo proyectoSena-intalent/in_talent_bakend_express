@@ -1,71 +1,79 @@
 // src/routes/calificaciones.routes.js
 const express = require('express');
 const router = express.Router();
-const { calificaciones, solicitudes } = require('../models/datos');
+const pool = require('../config/db');
 const { verificarToken, permitirRoles } = require('../middlewares/auth.middleware');
 
-// POST /api/calificaciones -> +guardar() / +Calificar()
-// Solo accesible por el CLIENTE
-router.post('/', verificarToken, permitirRoles('CLIENTE'), (req, res) => {
-    const { id_solicitud, puntuacion, comentario } = req.body;
+// POST /api/calificaciones -> Registrar calificación (CLIENTE)
+router.post('/', verificarToken, permitirRoles('CLIENTE'), async (req, res) => {
+    const { id_solicitud, puntuacio } = req.body;
 
-    // 1. Validar campos requeridos y rango de puntuación
-    if (!id_solicitud || !puntuacion) {
-        return res.status(400).json({ error: "Campos requeridos: id_solicitud y puntuacion (1 a 5)." });
+    if (!id_solicitud || puntuacio === undefined) {
+        return res.status(400).json({ error: "Campos requeridos: id_solicitud y puntuacio." });
     }
 
-    if (puntuacion < 1 || puntuacion > 5) {
-        return res.status(400).json({ error: "La puntuación debe ser un valor entero entre 1 y 5." });
+    if (puntuacio < 1 || puntuacio > 5) {
+        return res.status(400).json({ error: "La puntuación debe ser un valor entre 1 y 5." });
     }
 
-    // 2. Verificar que la solicitud existe y pertenece al cliente autenticado
-    const solicitud = solicitudes.find(
-        s => s.id_solicitud === parseInt(id_solicitud) && s.id_cliente === req.usuario.id
-    );
+    try {
+        // 1. Verificar existencia de la solicitud asociada al cliente autenticado
+        const [solicitudes] = await pool.query(
+            'SELECT * FROM Solicitud WHERE Id_solicitud = ? AND Id_cliente = ?',
+            [id_solicitud, req.usuario.id]
+        );
 
-    if (!solicitud) {
-        return res.status(404).json({ error: "Solicitud no encontrada o no pertenece a este cliente." });
+        if (solicitudes.length === 0) {
+            return res.status(404).json({
+                error: "Solicitud no encontrada o no pertenece al cliente autenticado."
+            });
+        }
+
+        // 2. Verificar que no exista ya una calificación para esta solicitud
+        const [calificacionesExistentes] = await pool.query(
+            'SELECT * FROM Calificacion WHERE Id_solicitud = ?',
+            [id_solicitud]
+        );
+
+        if (calificacionesExistentes.length > 0) {
+            return res.status(400).json({ error: "Esta solicitud ya tiene una calificación registrada." });
+        }
+
+        // 3. Guardar calificación en MySQL
+        const [result] = await pool.query(
+            'INSERT INTO Calificacion (puntuacio, Id_solicitud) VALUES (?, ?)',
+            [parseInt(puntuacio), id_solicitud]
+        );
+
+        res.status(201).json({
+            mensaje: "Calificación registrada exitosamente en MySQL",
+            id_calificacion: result.insertId,
+            puntuacio: parseInt(puntuacio),
+            id_solicitud: parseInt(id_solicitud)
+        });
+    } catch (error) {
+        res.status(500).json({ error: "Error al registrar la calificación.", detalle: error.message });
     }
-
-    // 3. Validar que la solicitud esté en estado finalizado/cerrado
-    if (solicitud.estado !== 'CERRADO' && solicitud.estado !== 'ACEPTADO') {
-        return res.status(400).json({ error: "Solo se pueden calificar solicitudes finalizadas o aceptadas." });
-    }
-
-    // 4. Evitar calificaciones duplicadas para la misma solicitud
-    const existeCalificacion = calificaciones.some(c => c.id_solicitud === parseInt(id_solicitud));
-    if (existeCalificacion) {
-        return res.status(400).json({ error: "Esta solicitud ya ha sido calificada anteriormente." });
-    }
-
-    // 5. Crear y guardar la calificación
-    const nuevaCalificacion = {
-        id_calificacion: calificaciones.length + 1,
-        puntuacion: parseInt(puntuacion),
-        comentario: comentario || "",
-        id_solicitud: parseInt(id_solicitud),
-        id_cliente: req.usuario.id,
-        fecha: new Date()
-    };
-
-    calificaciones.push(nuevaCalificacion);
-
-    res.status(201).json({
-        mensaje: "Calificación registrada con éxito",
-        calificacion: nuevaCalificacion
-    });
 });
 
-// GET /api/calificaciones/solicitud/:id_solicitud -> Consulta pública de calificación por solicitud
-router.get('/solicitud/:id_solicitud', (req, res) => {
-    const idSolicitud = parseInt(req.params.id_solicitud);
-    const calificacion = calificaciones.find(c => c.id_solicitud === idSolicitud);
+// GET /api/calificaciones/solicitud/:id_solicitud -> Consultar calificación de una solicitud
+router.get('/solicitud/:id_solicitud', verificarToken, async (req, res) => {
+    const { id_solicitud } = req.params;
 
-    if (!calificacion) {
-        return res.status(404).json({ error: "No se encontró calificación para esta solicitud." });
+    try {
+        const [calificaciones] = await pool.query(
+            'SELECT * FROM Calificacion WHERE Id_solicitud = ?',
+            [id_solicitud]
+        );
+
+        if (calificaciones.length === 0) {
+            return res.status(404).json({ error: "No existe registro de calificación para esta solicitud." });
+        }
+
+        res.json(calificaciones[0]);
+    } catch (error) {
+        res.status(500).json({ error: "Error al consultar la calificación.", detalle: error.message });
     }
-
-    res.json(calificacion);
 });
 
 module.exports = router;

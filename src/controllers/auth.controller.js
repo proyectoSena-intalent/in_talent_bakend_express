@@ -1,21 +1,19 @@
 // src/controllers/auth.controller.js
-const authServices = require('../services/auth.service'); // Se ajustó a auth.service
+const authService = require('../services/auth.service');
 
 const login = async (req, res) => {
-  const { email, password } = req.body;
+    const { email } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Debes proporcionar email y contraseña' });
-  }
+    if (!email) {
+        return res.status(400).json({ error: "El correo electrónico es obligatorio." });
+    }
 
-  try {
-    const resultado = await authServices.loginService(email, password);
-    return res.json(resultado);
-  } catch (error) {
-    return res.status(401).json({ error: error.message });
-  }
+    try {
+        const resultado = await authService.loginUsuario(email);
+        return res.json(resultado);
+    } catch (error) {
+        return res.status(401).json({ error: error.message });
+    }
 };
 
-module.exports = {
-  login
-};
+module.exports = { login };
