@@ -1,8 +1,11 @@
-// src/routes/auth.routes.js
 const express = require('express');
 const router = express.Router();
-const { login } = require('../controllers/auth.controller'); // Se ajustó a auth.controller
+
+// Importamos los métodos del controlador por desestructuración
+const { login, registro } = require('../controllers/auth.controller');
 
 router.post('/login', login);
+router.post('/registro', registro);
+router.post('/register', registro); // Usamos la misma función 'registro'
 
 module.exports = router;

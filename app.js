@@ -1,4 +1,3 @@
-// app.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -32,6 +31,11 @@ pool.getConnection()
         console.error('❌ Error de conexión a MySQL:', error.message);
     });
 
+// Ruta base de prueba
+app.get('/', (req, res) => {
+    res.json({ mensaje: "Servidor Backend de InTalent corriendo correctamente con MySQL" });
+});
+
 // Montaje de rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/usuarios', usuariosRoutes);
@@ -42,20 +46,17 @@ app.use('/api/transacciones', transaccionesRoutes);
 app.use('/api/mensajes', mensajesRoutes);
 app.use('/api/calificaciones', calificacionesRoutes);
 
-// Ruta base de prueba
-app.get('/', (req, res) => {
-    res.json({ mensaje: "Servidor Backend de InTalent corriendo correctamente con MySQL" });
-});
-
-// Manejo de rutas no encontradas (404)
+// Captura UNIFICADA para cualquier ruta no encontrada (404)
+// DEBE IR SIEMPRE AL FINAL DE TODAS LAS RUTAS
 app.use((req, res) => {
-    res.status(404).json({ error: "Ruta no encontrada." });
+    console.log(`❌ PETICIÓN RECHAZADA (404): ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ error: `La ruta ${req.originalUrl} no existe en este servidor.` });
 });
 
 // Inicialización del servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Servidor InTalent corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 Servidor InTalent corriendo en http://localhost:${PORT}`);
 });
 
 module.exports = app;

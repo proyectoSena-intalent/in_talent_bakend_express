@@ -5,9 +5,9 @@ const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'secreto_in_talent_2026';
 
 const loginUsuario = async (email) => {
-    // 1. Buscar en la tabla Cliente
+    // 1. Buscar en la tabla cliente (en minúsculas)
     const [clientes] = await pool.query(
-        'SELECT Id_cliente AS id, nombre, email FROM Cliente WHERE email = ?', 
+        'SELECT Id_cliente AS id, nombre, email FROM cliente WHERE email = ?', 
         [email]
     );
 
@@ -24,9 +24,9 @@ const loginUsuario = async (email) => {
         };
     }
 
-    // 2. Si no es cliente, buscar en la tabla Profesional
+    // 2. Buscar en la tabla profesional (en minúsculas)
     const [profesionales] = await pool.query(
-        'SELECT Id_profesional AS id, email, tarifaBase FROM Profesional WHERE email = ?', 
+        'SELECT Id_profesional AS id, email, tarifaBase FROM profesional WHERE email = ?', 
         [email]
     );
 
@@ -43,8 +43,37 @@ const loginUsuario = async (email) => {
         };
     }
 
-    // 3. No encontrado en ninguna tabla
     throw new Error('Credenciales inválidas: usuario no encontrado.');
 };
 
-module.exports = { loginUsuario };
+const registrarUsuario = async (datos) => {
+    const { nombre, email, telefono, contrasena } = datos;
+
+    // Validar existencia usando tablas en minúsculas
+    const [clientes] = await pool.query('SELECT email FROM cliente WHERE email = ?', [email]);
+    const [profesionales] = await pool.query('SELECT email FROM profesional WHERE email = ?', [email]);
+
+    if (clientes.length > 0 || profesionales.length > 0) {
+        throw new Error('El correo electrónico ya se encuentra registrado.');
+    }
+
+    // Insertar en la tabla cliente
+    const [resultado] = await pool.query(
+        'INSERT INTO cliente (nombre, email, telefono, contrasena) VALUES (?, ?, ?, ?)',
+        [nombre, email, telefono || null, contrasena]
+    );
+
+    const newId = resultado.insertId;
+    const token = jwt.sign(
+        { id: newId, email, rol: 'CLIENTE' },
+        JWT_SECRET,
+        { expiresIn: '8h' }
+    );
+
+    return {
+        token,
+        usuario: { id: newId, nombre, email, telefono, rol: 'CLIENTE' }
+    };
+};
+
+module.exports = { loginUsuario, registrarUsuario };
